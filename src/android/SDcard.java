@@ -17,6 +17,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.Context;
 import android.os.Build;
+import android.os.Environment;
 import android.os.storage.StorageManager;
 import android.os.storage.StorageVolume;
 import android.os.Bundle;
@@ -98,12 +99,23 @@ public class SDcard extends CordovaPlugin {
       }
   
       if (intent == null) {
+        Uri uri = getExternalFilesDirUri(this.cordova.getContext());
+
+        if (args.length() > 0) {
+          // TODO: folder select
+//          MyFileProvider myFileProvider = new MyFileProvider();
+//          String pvUrl = args.getString(0);
+//          File file = new File(pvUrl.replace("file://", ""));
+//          DocumentFile documentFile = DocumentFile.fromFile(file);
+//          uri = getExternalFilesDirUri(this.cordova.getContext());
+        }
         this.REQUEST_CODE = this.DOCUMENT_TREE;
         intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        if (uri != null) {
+          intent.putExtra("android.provider.extra.INITIAL_URI", uri);
+        }
       }
-
       cordova.startActivityForResult(this, intent, this.REQUEST_CODE);
-
     }else if ("open document".equals(action)){
       Intent intent = new Intent();
       String mimeType = "*/*";
@@ -560,6 +572,36 @@ public class SDcard extends CordovaPlugin {
   private void takePermission(Uri uri){
     this.contentResolver = this.context.getContentResolver();
     this.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+  }
+
+  public static android.net.Uri getExternalFilesDirUri(Context context) {
+    try {
+      /**
+       * Determine the app's private data folder on external storage if present.
+       * e.g. "/storage/abcd-efgh/Android/com.nutomic.syncthinandroid/files"
+       */
+      ArrayList<File> externalFilesDir = new ArrayList<>();
+      externalFilesDir.addAll(Arrays.asList(context.getExternalFilesDirs(null)));
+      externalFilesDir.remove(context.getExternalFilesDir(null));
+      if (externalFilesDir.size() == 0) {
+        return null;
+      }
+      String absPath = externalFilesDir.get(0).getAbsolutePath();
+      String[] segments = absPath.split("/");
+      if (segments.length < 2) {
+        return null;
+      }
+      // Extract the volumeId, e.g. "abcd-efgh"
+      String volumeId = segments[2];
+      // Build the content Uri for our private "files" folder.
+      return android.net.Uri.parse(
+              "content://com.android.externalstorage.documents/document/" +
+                      volumeId + "%3AAndroid%2Fdata%2F" +
+                      context.getPackageName() + "%2Ffiles");
+    } catch (Exception e) {
+//      Log.w(TAG, "getExternalFilesDirUri exception", e);
+    }
+    return null;
   }
 
 }
