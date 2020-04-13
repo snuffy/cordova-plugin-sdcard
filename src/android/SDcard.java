@@ -420,12 +420,15 @@ public class SDcard extends CordovaPlugin {
   }
 
   private void copy(String src, String dest){
-    DocumentFile srcfile = this.getDocumentFile(src);
+//    DocumentFile srcfile = this.getDocumentFile(src);
+    File file = new File(Uri.parse(src.replace("file://", "")).getPath());
+    DocumentFile srcfile = DocumentFile.fromFile(file);
     if(srcfile == null){
       this.error("Not found(350): "+src);
       return;
     }
-    DocumentFile destfile = this.getDocumentFile(dest);
+//    DocumentFile destfile = this.getDocumentFile(dest);
+    DocumentFile destfile = DocumentFile.fromTreeUri(this.context, Uri.parse(dest));
     if(destfile == null){
       this.error("Not found(359): "+destfile);
       return;
@@ -466,12 +469,12 @@ public class SDcard extends CordovaPlugin {
 
       if(is == null || os == null) return false;
 
-      byte[] bytes = new byte[1024];
-      int len;
-
-      while((len = is.read(bytes)) != -1){
-        os.write(len);
-        os.flush();
+      int DEFAULT_BUFFER_SIZE = 1024 * 4;
+      byte[] buffer = new byte[DEFAULT_BUFFER_SIZE];
+      int size = -1;
+      int doing = 0;
+      while (-1 != (size = is.read(buffer))) {
+        os.write(buffer, 0, size);
       }
 
       if(src.length() == newFile.length()) return true;
