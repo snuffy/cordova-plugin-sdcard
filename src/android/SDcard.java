@@ -16,20 +16,23 @@ import android.net.Uri;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.Context;
-import android.os.Build;
-import android.os.Environment;
+
 import android.os.storage.StorageManager;
 import android.os.storage.StorageVolume;
-import android.os.Bundle;
+
 import android.content.ContentResolver;
+
 import android.support.v4.provider.DocumentFile;
 import android.text.TextUtils;
 import android.provider.DocumentsContract;
+import android.util.Log;
 
+import org.apache.cordova.BuildConfig;
 import org.apache.cordova.CordovaInterface;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
 import org.apache.cordova.CordovaWebView;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -50,7 +53,7 @@ public class SDcard extends CordovaPlugin {
   private String rootPath;
 
   public SDcard() {
-    
+
   }
 
   public void initialize(CordovaInterface cordova, CordovaWebView webView) {
@@ -79,10 +82,7 @@ public class SDcard extends CordovaPlugin {
 
       // VERSION.SDK_INT >= 0x00000018 && VERSION.SDK_INT < 0x0000001d
 
-      if (
-        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N &&
-        android.os.Build.VERSION.SDK_INT <= 0x0000001c
-        ) {
+      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N && android.os.Build.VERSION.SDK_INT <= 0x0000001c) {
         String SDcardUUID = args.getString(0);
         StorageVolume sdCard = null;
 
@@ -97,7 +97,7 @@ public class SDcard extends CordovaPlugin {
           intent = sdCard.createAccessIntent(null);
         }
       }
-  
+
       if (intent == null) {
         Uri uri = getExternalFilesDirUri(this.cordova.getContext());
 
@@ -111,6 +111,7 @@ public class SDcard extends CordovaPlugin {
         }
         this.REQUEST_CODE = this.DOCUMENT_TREE;
         intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         if (uri != null) {
           intent.putExtra("android.provider.extra.INITIAL_URI", uri);
         }
@@ -127,7 +128,7 @@ public class SDcard extends CordovaPlugin {
       return true;
 
     }else if("list".equals(action)){
-      
+
       JSONObject volumes = new JSONObject();
 
       for(StorageVolume volume: this.storageManager.getStorageVolumes()){
@@ -150,9 +151,14 @@ public class SDcard extends CordovaPlugin {
       this.rootPath = args.getString(0);
       String arg1 = args.getString(1);
       String arg2 = null;
+      String arg3 = null;
 
       if(args.length() == 3){
         arg2 = args.getString(2);
+      }
+      if(args.length() == 4) {
+        arg2 = args.getString(2);
+        arg3 = args.getString(3);
       }
 
       switch(action){
@@ -167,7 +173,7 @@ public class SDcard extends CordovaPlugin {
         case "mkdir":
           this.mkdir(arg1, arg2);
           break;
-        
+
         case "rename":
           if(arg2 == null){
             this.error("Missing argument 'newname'");
@@ -183,30 +189,44 @@ public class SDcard extends CordovaPlugin {
         case "touch":
           this.touch(arg1, arg2);
           break;
-
+        case "syncFile":
+          DocumentFile sdcardDir = DocumentFile.fromTreeUri(context, Uri.parse(arg1));
+          boolean isSync = this.syncFile(sdcardDir);
+          if (isSync) {
+            this.cb.success("SUCCESS");
+          }
+          else {
+            this.error("couldn't sync");
+          }
+          break;
         case "copy":
         case "move":
           if(arg2 == null){
             this.error("Missing argument 'destinationPath'");
             return false;
           }
-          if(action.equals("move")) this.move(arg1, arg2);
-          else this.copy(arg1, arg2);
+          if(action.equals("move")) {
+            this.move(arg1, arg2);
+          }
+          else {
+            this.copy(arg1, arg2, arg3);
+          }
           break;
 
         case "getpath":
           this.getPath(arg1);
-        break;
+          break;
+
 
         default:
-        break;
+          break;
       }
     }
 
     return true;
 
   }
-  
+
   public void onActivityResult(int requestCode, int resultCode, Intent data){
 
     super.onActivityResult(requestCode, resultCode, data);
@@ -260,27 +280,29 @@ public class SDcard extends CordovaPlugin {
       }
 
     }
-    
+
   }
+
+
 
   private void writeFile(String filename, String content){
     try{
       DocumentFile file = this.getDocumentFile(filename);
-      
+
       if(file == null){
         this.error("Not found(240): "+filename);
         return;
       }
 
       if(file.canWrite()){
-      
+
         OutputStream op = this.context.getContentResolver().openOutputStream(file.getUri());
         BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(op));
         bw.write(content);
         bw.flush();
         bw.close();
         this.cb.success("SUCCESS");
-      
+
       }else{
         this.error("No write permission - "+filename);
       }
@@ -292,21 +314,20 @@ public class SDcard extends CordovaPlugin {
   private void writeFile(String content){
     try{
       DocumentFile file = DocumentFile.fromSingleUri(this.context, Uri.parse(this.rootPath));
-      
+
       if(file == null){
         this.error("Not found(240): "+this.rootPath);
         return;
       }
 
       if(file.canWrite()){
-      
         OutputStream op = this.context.getContentResolver().openOutputStream(file.getUri());
         BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(op));
         bw.write(content);
         bw.flush();
         bw.close();
         this.cb.success("SUCCESS");
-      
+
       }else{
         this.error("No write permission - "+this.rootPath);
       }
@@ -419,29 +440,78 @@ public class SDcard extends CordovaPlugin {
     }
   }
 
-  private void copy(String src, String dest){
-//    DocumentFile srcfile = this.getDocumentFile(src);
+  private void copy(String src, String dest, String sub){
+    // src ファイルの取得
     File file = new File(Uri.parse(src.replace("file://", "")).getPath());
     DocumentFile srcfile = DocumentFile.fromFile(file);
     if(srcfile == null){
-      this.error("Not found(350): "+src);
+      this.error("Not found(350): " + src);
       return;
     }
-//    DocumentFile destfile = this.getDocumentFile(dest);
+
+    // download folder がなければダウンロードを作ってやる
     DocumentFile destfile = DocumentFile.fromTreeUri(this.context, Uri.parse(dest));
+
+    DocumentFile root = destfile.findFile("download");
+    if (root == null) {
+      root = destfile.createDirectory("download");
+    }
+
+
+
+    // download folder 直下に各 dir を作る
+    DocumentFile subDir = root.findFile(sub);
+    if (sub == null || sub == "null") {
+      subDir = destfile;
+    }
+    else {
+
+      if (subDir == null) {
+        subDir = root.createDirectory(sub);
+      }
+
+    }
+
+    destfile = subDir;
     if(destfile == null){
-      this.error("Not found(359): "+destfile);
+      this.error("指定された folder が存在しません " + destfile);
       return;
     }
 
+    // コピーの開始
     this.copy(srcfile, destfile);
-
   }
-
+  private boolean syncFile(DocumentFile path) {
+    DocumentFile list[] = path.listFiles();
+    try {
+      for( int i=0; i< list.length; i++) {
+        List<String> pathList = new ArrayList<String>();
+        if (list[i].isFile()) {
+          DocumentFile f = list[i];
+          File target = new File(context.getExternalFilesDir("").getPath(), f.getName());
+          InputStream is = context.getContentResolver().openInputStream(f.getUri());
+          OutputStream os = context.getContentResolver().openOutputStream(Uri.fromFile(target));
+          int DEFAULT_BUFFER_SIZE = 1024 * 4;
+          byte[] buffer = new byte[DEFAULT_BUFFER_SIZE];
+          int size = -1;
+          int doing = 0;
+          while (-1 != (size = is.read(buffer))) {
+            os.write(buffer, 0, size);
+          }
+        }
+      }
+      return true;
+    }
+    catch (IOException e) {
+      e.printStackTrace();
+      return false;
+    }
+  }
   private void copy(DocumentFile src, DocumentFile dest){
     if(src.isFile()){
       boolean res = this.copyFile(src, dest);
       if(!res) this.error("Unable to copy: "+src.getName());
+      this.cb.success("SUCCESS");
       return;
     }
 
@@ -457,13 +527,16 @@ public class SDcard extends CordovaPlugin {
   }
 
   private boolean copyFile(DocumentFile src, DocumentFile dest){
-
     InputStream is = null;
     OutputStream os = null;
-
     try{
-
-      DocumentFile newFile = dest.createFile(src.getType(), src.getName());
+      this.context.grantUriPermission(BuildConfig.APPLICATION_ID, dest.getUri(),
+              Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+      // file がすでに存在してたら上書きする
+      DocumentFile newFile = dest.findFile(src.getName());
+      if (newFile == null) {
+        newFile =  dest.createFile(src.getType(), src.getName());
+      }
       is = this.context.getContentResolver().openInputStream(src.getUri());
       os = this.context.getContentResolver().openOutputStream(newFile.getUri());
 
@@ -480,13 +553,9 @@ public class SDcard extends CordovaPlugin {
       if(src.length() == newFile.length()) return true;
 
     }catch(FileNotFoundException e){
-
       this.error(e.toString());
-
     }catch(IOException e){
-
       this.error(e.toString());
-
     }finally{
 
       try {
@@ -512,7 +581,7 @@ public class SDcard extends CordovaPlugin {
     if(file == null){
 
       this.error("Unable to get file");
-      
+
     }else{
 
       Uri uri = file.getUri();
@@ -532,15 +601,11 @@ public class SDcard extends CordovaPlugin {
   }
 
   private DocumentFile getDocumentFile(String filename){
-
     return _DocumentFile(filename, 0);
-
   }
 
   private DocumentFile getParentDocumentFile(String filename){
-
     return _DocumentFile(filename, 1);
-
   }
 
   private DocumentFile _DocumentFile(String filename, int limit){
@@ -555,7 +620,7 @@ public class SDcard extends CordovaPlugin {
     }
 
     paths.addAll(Arrays.asList(filename.split("/")));
-    
+
     while(paths.size() > limit){
       String path = paths.remove(0);
       filename = TextUtils.join("/", paths);
@@ -602,9 +667,8 @@ public class SDcard extends CordovaPlugin {
                       volumeId + "%3AAndroid%2Fdata%2F" +
                       context.getPackageName() + "%2Ffiles");
     } catch (Exception e) {
-//      Log.w(TAG, "getExternalFilesDirUri exception", e);
+    //  Log.w(TAG, "getExternalFilesDirUri exception", e);
     }
     return null;
   }
-
 }
