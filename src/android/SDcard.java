@@ -152,6 +152,14 @@ public class SDcard extends CordovaPlugin {
         this.getStats(arg1);
         break;
 
+      case "syncFile":
+        DocumentFile sdcardDir = DocumentFile.fromTreeUri(context, Uri.parse(arg1));
+        this.syncFile(sdcardDir);
+        break;
+
+      case "open":
+        this.openDoc(args);
+        break;
       default:
         return false;
     }
@@ -742,4 +750,72 @@ public class SDcard extends CordovaPlugin {
         Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
   }
 
+  private boolean syncFile(DocumentFile path) {
+    DocumentFile list[] = path.listFiles();
+    try {
+      for( int i=0; i< list.length; i++) {
+        List<String> pathList = new ArrayList<String>();
+        if (list[i].isFile()) {
+          DocumentFile f = list[i];
+          File target = new File(context.getExternalFilesDir("").getPath(), f.getName());
+          InputStream is = context.getContentResolver().openInputStream(f.getUri());
+          OutputStream os = context.getContentResolver().openOutputStream(Uri.fromFile(target));
+          int DEFAULT_BUFFER_SIZE = 1024 * 4;
+          byte[] buffer = new byte[DEFAULT_BUFFER_SIZE];
+          int size = -1;
+          int doing = 0;
+          while (-1 != (size = is.read(buffer))) {
+            os.write(buffer, 0, size);
+          }
+        }
+      }
+      return true;
+    }
+    catch (IOException e) {
+      e.printStackTrace();
+      
+      this.error("couldn't sync");
+      return false;
+    }
+  }
+
+  private void openDoc(JSONArray args) {
+    if(args.length() == 0){
+        this.cb.error("SDCardName required");
+        return false;
+      }
+
+      Intent intent = null;
+
+      // VERSION.SDK_INT >= 0x00000018 && VERSION.SDK_INT < 0x0000001d
+
+      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N && android.os.Build.VERSION.SDK_INT <= 0x0000001c) {
+        String SDcardUUID = args.getString(0);
+        StorageVolume sdCard = null;
+
+        for(StorageVolume volume: this.storageManager.getStorageVolumes()){
+          String uuid = volume.getUuid();
+          if(uuid != null && uuid.equals(SDcardUUID)){
+            sdCard = volume;
+          }
+        }
+
+        if (sdCard != null) {
+          intent = sdCard.createAccessIntent(null);
+        }
+      }
+
+
+      if (intent == null) {
+        Uri uri = getExternalFilesDirUri(this.cordova.getContext());
+        if (args.length() > 0) {}
+        this.REQUEST_CODE = this.DOCUMENT_TREE;
+        intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (uri != null) {
+          intent.putExtra("android.provider.extra.INITIAL_URI", uri);
+        }
+      }
+      cordova.startActivityForResult(this, intent, this.REQUEST_CODE);
+  }
 }

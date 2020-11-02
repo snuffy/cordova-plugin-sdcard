@@ -43,5 +43,11 @@ window.sdcard = {
   },
   stats: function (filename, onSuccess, onFail) {
     cordova.exec(onSuccess, onFail, "SDcard", "stats", [filename]);
-  }
+  },
+  open: function (uuid, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "open", [uuid]);
+  },
+  syncFile: function (root, src, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "syncFile", [root, src]);
+  },
 };
