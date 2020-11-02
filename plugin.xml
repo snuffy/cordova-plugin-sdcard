@@ -17,5 +17,6 @@
     </config-file>
     <source-file src="src/android/SDcard.java" target-dir="src/com/foxdebug/sdcard"/>
     <config-file target="AndroidManifest.xml" parent="/manifest"></config-file>
+    <lib-file src="src/android/commons-io-2.7.jar" />
   </platform>
 </plugin>
