@@ -779,10 +779,9 @@ public class SDcard extends CordovaPlugin {
     }
   }
 
-  private void openDoc(JSONArray args) {
+  private void openDoc(JSONArray args) throws JSONException {
     if(args.length() == 0){
-        this.cb.error("SDCardName required");
-        return false;
+        this.callback.error("SDCardName required");
       }
 
       Intent intent = null;
@@ -818,4 +817,36 @@ public class SDcard extends CordovaPlugin {
       }
       cordova.startActivityForResult(this, intent, this.REQUEST_CODE);
   }
+
+
+  public static Uri getExternalFilesDirUri(Context context) {
+    try {
+      /**
+       * Determine the app's private data folder on external storage if present.
+       * e.g. "/storage/abcd-efgh/Android/com.nutomic.syncthinandroid/files"
+       */
+      ArrayList<File> externalFilesDir = new ArrayList<>();
+      externalFilesDir.addAll(Arrays.asList(context.getExternalFilesDirs(null)));
+      externalFilesDir.remove(context.getExternalFilesDir(null));
+      if (externalFilesDir.size() == 0) {
+        return null;
+      }
+      String absPath = externalFilesDir.get(0).getAbsolutePath();
+      String[] segments = absPath.split("/");
+      if (segments.length < 2) {
+        return null;
+      }
+      // Extract the volumeId, e.g. "abcd-efgh"
+      String volumeId = segments[2];
+      // Build the content Uri for our private "files" folder.
+      return android.net.Uri.parse(
+              "content://com.android.externalstorage.documents/document/" +
+                      volumeId + "%3AAndroid%2Fdata%2F" +
+                      context.getPackageName() + "%2Ffiles");
+    } catch (Exception e) {
+    //  Log.w(TAG, "getExternalFilesDirUri exception", e);
+    }
+    return null;
+  }
 }
+
