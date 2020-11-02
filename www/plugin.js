@@ -1,42 +1,47 @@
-window.SDcard = {
-  open: function (uuid, onSuccess, onFail) {
-    cordova.exec(onSuccess, onFail, "SDcard", "open", [uuid]);
+window.sdcard = {
+  copy: function (srcPathname, destPathname, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "copy", [srcPathname, destPathname]);
   },
-  openDoc: function (onSuccess, onFail, mimeType) {
-    cordova.exec(onSuccess, onFail, "SDcard", "open document", mimeType ? [mimeType] : []);
+  createDir: function (pathname, dir, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "create directory", [pathname, dir]);
   },
-  list: function (onSuccess, onFail) {
-    cordova.exec(onSuccess, onFail, "SDcard", "list", []);
+  createFile: function (pathname, file, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "create file", [pathname, file]);
   },
-  write: function (root, file, content, onSuccess, onFail) {
-    if (file) {
-      cordova.exec(onSuccess, onFail, "SDcard", "write", [root, file, content]);
-    } else {
-      cordova.exec(onSuccess, onFail, "SDcard", "write", [root, content]);
-    }
+  delete: function (pathname, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "delete", [pathname]);
   },
-  rename: function (root, file, newFile, onSuccess, onFail) {
-    cordova.exec(onSuccess, onFail, "SDcard", "rename", [root, file, newFile]);
+  exists: function (pathName, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "exists", [pathName]);
   },
-  delete: function (root, file, onSuccess, onFail) {
-    cordova.exec(onSuccess, onFail, "SDcard", "delete", [root, file]);
+  formatUri: function (pathName, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "format uri", [pathName]);
   },
-  mkdir: function (root, parent, dir, onSuccess, onFail) {
-    cordova.exec(onSuccess, onFail, "SDcard", "mkdir", [root, parent, dir]);
+  getPath: function (uri, filename, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "getpath", [uri, filename]);
   },
-  touch: function (root, parent, file, onSuccess, onFail) {
-    cordova.exec(onSuccess, onFail, "SDcard", "touch", [root, parent, file]);
+  getStorageAccessPermission: function (uuid, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "storage permission", [uuid]);
   },
-  move: function (root, src, dest, onSuccess, onFail) {
-    cordova.exec(onSuccess, onFail, "SDcard", "move", [root, src, dest]);
+  listStorages: function (onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "list volumes", []);
   },
-  copy: function (root, src, dest, sub, onSuccess, onFail) {
-    cordova.exec(onSuccess, onFail, "SDcard", "copy", [root, src, dest, sub]);
+  listDir: function (src, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "list directory", [src]);
   },
-  syncFile: function (root, src, onSuccess, onFail) {
-    cordova.exec(onSuccess, onFail, "SDcard", "syncFile", [root, src]);
+  move: function (srcPathname, destPathname, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "move", [srcPathname, destPathname]);
   },
-  getPath: function (root, file, onSuccess, onFail) {
-    cordova.exec(onSuccess, onFail, "SDcard", "getpath", [root, file]);
+  openDocumentFile: function (onSuccess, onFail, mimeType) {
+    cordova.exec(onSuccess, onFail, "SDcard", "open document file", mimeType ? [mimeType] : []);
+  },
+  rename: function (pathname, newFilename, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "rename", [pathname, newFilename]);
+  },
+  write: function (filename, content, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "write", [filename, content]);
+  },
+  stats: function (filename, onSuccess, onFail) {
+    cordova.exec(onSuccess, onFail, "SDcard", "stats", [filename]);
   }
 };

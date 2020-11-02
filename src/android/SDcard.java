@@ -1,12 +1,13 @@
-package com.foxdebug.sdcard;
+package com.foxdebug;
 
 import java.io.File;
-import java.io.OutputStream;
-import java.io.InputStream;
-import java.io.OutputStreamWriter;
-import java.io.BufferedWriter;
-import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.io.OutputStream;
+import java.io.FileNotFoundException;
+
 import java.util.List;
 import java.util.Arrays;
 import java.util.ArrayList;
@@ -16,22 +17,24 @@ import android.net.Uri;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.Context;
-
+import android.os.Build;
 import android.os.storage.StorageManager;
 import android.os.storage.StorageVolume;
-
 import android.content.ContentResolver;
-
 import android.support.v4.provider.DocumentFile;
 import android.text.TextUtils;
 import android.provider.DocumentsContract;
+import android.provider.DocumentsContract.Document;
+import android.database.Cursor;
 import android.util.Log;
 
-import org.apache.cordova.BuildConfig;
 import org.apache.cordova.CordovaInterface;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
 import org.apache.cordova.CordovaWebView;
+
+import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.FilenameUtils;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -39,203 +42,216 @@ import org.json.JSONObject;
 
 public class SDcard extends CordovaPlugin {
 
-  private CallbackContext cb;
+  private CallbackContext callback;
   private int mode;
   private int REQUEST_CODE;
-  private int DOCUMENT_TREE;
-  private int ACCESS_INTENT;
-  private int OPEN_DOCUMENT;
+  private final int ACCESS_INTENT = 6000;
+  private final int DOCUMENT_TREE = 6001;
+  private final int OPEN_DOCUMENT = 6002;
+  private final String SAPERATOR = "::";
   private StorageManager storageManager;
   private Context context;
   private Activity activity;
   private ContentResolver contentResolver;
   private DocumentFile originalRootFile;
-  private String rootPath;
-
-  public SDcard() {
-
-  }
 
   public void initialize(CordovaInterface cordova, CordovaWebView webView) {
     super.initialize(cordova, webView);
-    this.ACCESS_INTENT = 6000;
-    this.DOCUMENT_TREE = 6001;
-    this.OPEN_DOCUMENT = 6002;
     this.REQUEST_CODE = this.ACCESS_INTENT;
     this.context = cordova.getContext();
     this.activity = cordova.getActivity();
     this.storageManager = (StorageManager) this.activity.getSystemService(Context.STORAGE_SERVICE);
   }
 
-  public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
+  public boolean execute(String action, final JSONArray args, final CallbackContext callbackContext)
+      throws JSONException {
 
-    this.cb = callbackContext;
+    this.callback = callbackContext;
 
-    if ("open".equals(action)) {
+    String arg1 = null, arg2 = null, arg3 = null, arg4 = null;
+    int argLen = args.length();
 
-      if(args.length() == 0){
-        this.cb.error("SDCardName required");
+    if (argLen > 0)
+      arg1 = args.getString(0);
+
+    if (argLen > 1)
+      arg2 = args.getString(1);
+
+    if (argLen > 2)
+      arg3 = args.getString(2);
+
+    switch (action) {
+
+      case "create directory":
+        this.createDir(arg1, arg2);
+        break;
+
+      case "create file":
+        this.createFile(arg1, arg2);
+        break;
+
+      case "open document file":
+        this.openDocumentFile(arg1);
+        break;
+
+      case "list volumes":
+        this.getStorageVolumes();
+        break;
+
+      case "storage permission":
+        this.getStorageAccess(arg1);
+        break;
+
+      case "write":
+        this.writeFile(formatUri(arg1), arg2);
+        break;
+
+      case "rename":
+        this.rename(arg1, arg2);
+        break;
+
+      case "delete":
+        this.delete(formatUri(arg1));
+        break;
+
+      case "copy":
+        this.copy(arg1, arg2);
+        break;
+
+      case "move":
+        this.move(arg1, arg2);
+        break;
+
+      case "getpath":
+        this.getPath(formatUri(arg1), arg2);
+        break;
+
+      case "exists":
+        this.exists(formatUri(arg1));
+        break;
+
+      case "format uri":
+        this.callback.success(formatUri(arg1));
+        break;
+
+      case "list directory":
+
+        if (arg1.contains(SAPERATOR)) {
+
+          String splittedStr[] = arg1.split(SAPERATOR, 2);
+          arg1 = splittedStr[0];
+          arg2 = splittedStr[1];
+
+        }
+
+        this.listDir(arg1, arg2);
+
+        break;
+
+      case "stats":
+        this.getStats(arg1);
+        break;
+
+      default:
         return false;
-      }
-
-      Intent intent = null;
-
-      // VERSION.SDK_INT >= 0x00000018 && VERSION.SDK_INT < 0x0000001d
-
-      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N && android.os.Build.VERSION.SDK_INT <= 0x0000001c) {
-        String SDcardUUID = args.getString(0);
-        StorageVolume sdCard = null;
-
-        for(StorageVolume volume: this.storageManager.getStorageVolumes()){
-          String uuid = volume.getUuid();
-          if(uuid != null && uuid.equals(SDcardUUID)){
-            sdCard = volume;
-          }
-        }
-
-        if (sdCard != null) {
-          intent = sdCard.createAccessIntent(null);
-        }
-      }
-
-      if (intent == null) {
-        Uri uri = getExternalFilesDirUri(this.cordova.getContext());
-
-        if (args.length() > 0) {
-          // TODO: folder select
-//          MyFileProvider myFileProvider = new MyFileProvider();
-//          String pvUrl = args.getString(0);
-//          File file = new File(pvUrl.replace("file://", ""));
-//          DocumentFile documentFile = DocumentFile.fromFile(file);
-//          uri = getExternalFilesDirUri(this.cordova.getContext());
-        }
-        this.REQUEST_CODE = this.DOCUMENT_TREE;
-        intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        if (uri != null) {
-          intent.putExtra("android.provider.extra.INITIAL_URI", uri);
-        }
-      }
-      cordova.startActivityForResult(this, intent, this.REQUEST_CODE);
-    }else if ("open document".equals(action)){
-      Intent intent = new Intent();
-      String mimeType = "*/*";
-      intent.setAction(Intent.ACTION_OPEN_DOCUMENT);
-      intent.addCategory(Intent.CATEGORY_OPENABLE);
-      if(args.length() > 0) mimeType = args.getString(0);
-      intent.setType(mimeType);
-      cordova.startActivityForResult(this, intent, this.OPEN_DOCUMENT);
-      return true;
-
-    }else if("list".equals(action)){
-
-      JSONObject volumes = new JSONObject();
-
-      for(StorageVolume volume: this.storageManager.getStorageVolumes()){
-        String name = volume.getDescription(this.context);
-        String uuid = volume.getUuid();
-        if(name != null && uuid != null){
-          volumes.put(uuid, name);
-        }
-      }
-
-      this.cb.success(volumes);
-
-    }else{
-
-      if(args.length() < 2){
-        this.error("Few paramerter are missing");
-        return false;
-      }
-
-      this.rootPath = args.getString(0);
-      String arg1 = args.getString(1);
-      String arg2 = null;
-      String arg3 = null;
-
-      if(args.length() == 3){
-        arg2 = args.getString(2);
-      }
-      if(args.length() == 4) {
-        arg2 = args.getString(2);
-        arg3 = args.getString(3);
-      }
-
-      switch(action){
-        case "write":
-          if(arg2 == null){
-            this.writeFile(arg1);
-            return false;
-          }
-          this.writeFile(arg1, arg2);
-          break;
-
-        case "mkdir":
-          this.mkdir(arg1, arg2);
-          break;
-
-        case "rename":
-          if(arg2 == null){
-            this.error("Missing argument 'newname'");
-            return false;
-          }
-          this.rename(arg1, arg2);
-          break;
-
-        case "delete":
-          this.delete(arg1);
-          break;
-
-        case "touch":
-          this.touch(arg1, arg2);
-          break;
-        case "syncFile":
-          DocumentFile sdcardDir = DocumentFile.fromTreeUri(context, Uri.parse(arg1));
-          boolean isSync = this.syncFile(sdcardDir);
-          if (isSync) {
-            this.cb.success("SUCCESS");
-          }
-          else {
-            this.error("couldn't sync");
-          }
-          break;
-        case "copy":
-        case "move":
-          if(arg2 == null){
-            this.error("Missing argument 'destinationPath'");
-            return false;
-          }
-          if(action.equals("move")) {
-            this.move(arg1, arg2);
-          }
-          else {
-            this.copy(arg1, arg2, arg3);
-          }
-          break;
-
-        case "getpath":
-          this.getPath(arg1);
-          break;
-
-
-        default:
-          break;
-      }
     }
 
     return true;
 
   }
 
-  public void onActivityResult(int requestCode, int resultCode, Intent data){
+  private String formatUri(String filename) {
+    if (filename.contains(SAPERATOR)) {
+
+      String splittedStr[] = filename.split(SAPERATOR, 2);
+      String rootUri = splittedStr[0];
+      String docId = splittedStr[1];
+
+      Uri uri = getUri(rootUri, docId);
+
+      return uri.toString();
+
+    } else {
+
+      return filename;
+
+    }
+  }
+
+  public void openDocumentFile(String mimeType) {
+    Intent intent = new Intent();
+    if (mimeType == null)
+      mimeType = "*/*";
+    intent.setAction(Intent.ACTION_OPEN_DOCUMENT);
+    intent.addCategory(Intent.CATEGORY_OPENABLE);
+    intent.setType(mimeType);
+    cordova.startActivityForResult(this, intent, this.OPEN_DOCUMENT);
+  }
+
+  public void getStorageVolumes() {
+    try {
+      JSONArray result = new JSONArray();
+      for (StorageVolume volume : this.storageManager.getStorageVolumes()) {
+        String name = volume.getDescription(this.context);
+        String uuid = volume.getUuid();
+        JSONObject volumeData = new JSONObject();
+        if (name != null && uuid != null) {
+          volumeData.put("uuid", uuid);
+          volumeData.put("name", name);
+
+          result.put(volumeData);
+        }
+      }
+
+      this.callback.success(result);
+    } catch (JSONException e) {
+      this.error(e.toString());
+    }
+  }
+
+  public void getStorageAccess(String SDCardUUID) {
+
+    Intent intent = null;
+
+    // VERSION.SDK_INT >= 0x00000018 && VERSION.SDK_INT < 0x0000001d
+
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N
+        && android.os.Build.VERSION.SDK_INT <= 0x0000001c) {
+
+      StorageVolume sdCard = null;
+
+      for (StorageVolume volume : this.storageManager.getStorageVolumes()) {
+        String uuid = volume.getUuid();
+        if (uuid != null && uuid.equals(SDCardUUID)) {
+          sdCard = volume;
+        }
+      }
+
+      if (sdCard != null) {
+        intent = sdCard.createAccessIntent(null);
+      }
+    }
+
+    if (intent == null) {
+      this.REQUEST_CODE = this.DOCUMENT_TREE;
+      intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+    }
+
+    cordova.startActivityForResult(this, intent, this.REQUEST_CODE);
+  }
+
+  public void onActivityResult(int requestCode, int resultCode, Intent data) {
 
     super.onActivityResult(requestCode, resultCode, data);
 
-    if(requestCode == this.OPEN_DOCUMENT){
+    if (data == null)
+      return;
 
-      if(resultCode == Activity.RESULT_OK){
+    if (requestCode == this.OPEN_DOCUMENT) {
 
-        try{
+      if (resultCode == Activity.RESULT_OK) {
+
+        try {
 
           Uri uri = data.getData();
           this.takePermission(uri);
@@ -247,9 +263,9 @@ public class SDcard extends CordovaPlugin {
           res.put("filename", file.getName());
           res.put("canWrite", file.canWrite());
           res.put("uri", uri.toString());
-          this.cb.success(res);
+          this.callback.success(res);
 
-        }catch(JSONException e){
+        } catch (JSONException e) {
 
           this.error(e.toString());
 
@@ -257,379 +273,444 @@ public class SDcard extends CordovaPlugin {
 
       }
 
-    }else{
+    } else {
 
-      if(requestCode == this.ACCESS_INTENT && resultCode == Activity.RESULT_CANCELED){
+      if (requestCode == this.ACCESS_INTENT && resultCode == Activity.RESULT_CANCELED) {
         this.error("Canceled");
         return;
       }
 
-      Uri uri = data.getData();
-      if(uri  == null){
-        this.error("Empty uri");
-      }else{
-
-        this.takePermission(uri);
-        DocumentFile file = DocumentFile.fromTreeUri(this.context, uri);
-        if(file!=null && file.canWrite()){
-          this.cb.success(uri.toString());
-        }else{
-          this.error("No write permisson: "+uri.toString());
-        }
-
-      }
-
-    }
-
-  }
-
-
-
-  private void writeFile(String filename, String content){
-    try{
-      DocumentFile file = this.getDocumentFile(filename);
-
-      if(file == null){
-        this.error("Not found(240): "+filename);
-        return;
-      }
-
-      if(file.canWrite()){
-
-        OutputStream op = this.context.getContentResolver().openOutputStream(file.getUri());
-        BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(op));
-        bw.write(content);
-        bw.flush();
-        bw.close();
-        this.cb.success("SUCCESS");
-
-      }else{
-        this.error("No write permission - "+filename);
-      }
-    }catch(IOException e){
-      this.error(""+e.toString()+": "+filename);
-    }
-  }
-
-  private void writeFile(String content){
-    try{
-      DocumentFile file = DocumentFile.fromSingleUri(this.context, Uri.parse(this.rootPath));
-
-      if(file == null){
-        this.error("Not found(240): "+this.rootPath);
-        return;
-      }
-
-      if(file.canWrite()){
-        OutputStream op = this.context.getContentResolver().openOutputStream(file.getUri());
-        BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(op));
-        bw.write(content);
-        bw.flush();
-        bw.close();
-        this.cb.success("SUCCESS");
-
-      }else{
-        this.error("No write permission - "+this.rootPath);
-      }
-    }catch(IOException e){
-      this.error(""+e.toString()+": "+this.rootPath);
-    }
-  }
-
-  private void mkdir(String parent, String dirname){
-    DocumentFile alreadyExists = this.getDocumentFile(parent).findFile(dirname);
-
-    if(alreadyExists != null){
-      this.error("Directory already exists: "+dirname);
-      return;
-    }
-
-    DocumentFile newDir = this.getDocumentFile(parent).createDirectory(dirname);
-    if(newDir == null){
-      this.error("Unable to create directory: "+dirname);
-      return;
-    }
-
-    this.cb.success("SUCCESS");
-
-  }
-
-  private void rename(String filename, String newFile){
-    DocumentFile file = this.getDocumentFile(filename);
-    if(file == null){
-      this.error("Not found(276): "+filename);
-      return;
-    }
-    if(file.renameTo(newFile)){
-      this.cb.success("SUCCESS");
-      return;
-    }
-
-    if(file.isFile()){
-      this.error("Unable to rename file: "+filename);
-    }else{
-      this.error("Unable to rename folder: "+filename);
-    }
-  }
-
-  private void delete(String filename){
-    DocumentFile file = this.getDocumentFile(filename);
-    if(file == null){
-      this.error("Not found(290): "+filename);
-      return;
-    }
-    if(file.delete()){
-      this.cb.success("SUCCESS");
-      return;
-    }
-
-    this.error("Unable to delete file: "+filename);
-  }
-
-  private void touch(String parent, String filename){
-    String mimeType = null;
-    String fileNameWithoutExtention = filename.replaceFirst("[.][^.]+$", "");
-    DocumentFile alreadyExists = this.getDocumentFile(parent).findFile(filename);
-
-    mimeType = URLConnection.guessContentTypeFromName(filename);
-    if(mimeType == null) mimeType = "text/plain";
-
-    if(alreadyExists != null){
-      this.error("File already exists: "+filename);
-      return;
-    }
-
-    DocumentFile file = this.getDocumentFile(parent).createFile(mimeType, fileNameWithoutExtention);
-    if(file == null){
-      this.error("Unable to create file: "+filename);
-      return;
-    }
-    if(!file.getName().equals(filename)) file.renameTo(filename);
-    this.cb.success("SUCCESS");
-  }
-
-  private void move(String src, String dest){
-    DocumentFile srcfile = this.getDocumentFile(src);
-    if(srcfile == null){
-      this.error("Not found(318): "+src);
-      return;
-    }
-    DocumentFile parentfile = this.getParentDocumentFile(src);
-    DocumentFile destfile = this.getDocumentFile(dest);
-
-    if(destfile == null){
-      this.error("Not found(359): "+destfile);
-      return;
-    }
-
-    ContentResolver content = this.context.getContentResolver();
-
-    try{
-
-      Uri res = DocumentsContract.moveDocument(content, srcfile.getUri(), parentfile.getUri(), destfile.getUri());
-
-      if(res == null){
-        this.error("Unable to move: "+src);
-        return;
-      }
-
-      this.cb.success("SUCCESS");
-
-    }catch(FileNotFoundException e){
-      this.error(e.toString());
-    }
-  }
-
-  private void copy(String src, String dest, String sub){
-    // src ファイルの取得
-    File file = new File(Uri.parse(src.replace("file://", "")).getPath());
-    DocumentFile srcfile = DocumentFile.fromFile(file);
-    if(srcfile == null){
-      this.error("Not found(350): " + src);
-      return;
-    }
-
-    // download folder がなければダウンロードを作ってやる
-    DocumentFile destfile = DocumentFile.fromTreeUri(this.context, Uri.parse(dest));
-
-    DocumentFile root = destfile.findFile("download");
-    if (root == null) {
-      root = destfile.createDirectory("download");
-    }
-
-
-
-    // download folder 直下に各 dir を作る
-    DocumentFile subDir = root.findFile(sub);
-    if (sub == null || sub == "null") {
-      subDir = destfile;
-    }
-    else {
-
-      if (subDir == null) {
-        subDir = root.createDirectory(sub);
-      }
-
-    }
-
-    destfile = subDir;
-    if(destfile == null){
-      this.error("指定された folder が存在しません " + destfile);
-      return;
-    }
-
-    // コピーの開始
-    this.copy(srcfile, destfile);
-  }
-  private boolean syncFile(DocumentFile path) {
-    DocumentFile list[] = path.listFiles();
-    try {
-      for( int i=0; i< list.length; i++) {
-        List<String> pathList = new ArrayList<String>();
-        if (list[i].isFile()) {
-          DocumentFile f = list[i];
-          File target = new File(context.getExternalFilesDir("").getPath(), f.getName());
-          InputStream is = context.getContentResolver().openInputStream(f.getUri());
-          OutputStream os = context.getContentResolver().openOutputStream(Uri.fromFile(target));
-          int DEFAULT_BUFFER_SIZE = 1024 * 4;
-          byte[] buffer = new byte[DEFAULT_BUFFER_SIZE];
-          int size = -1;
-          int doing = 0;
-          while (-1 != (size = is.read(buffer))) {
-            os.write(buffer, 0, size);
-          }
-        }
-      }
-      return true;
-    }
-    catch (IOException e) {
-      e.printStackTrace();
-      return false;
-    }
-  }
-  private void copy(DocumentFile src, DocumentFile dest){
-    if(src.isFile()){
-      boolean res = this.copyFile(src, dest);
-      if(!res) this.error("Unable to copy: "+src.getName());
-      this.cb.success("SUCCESS");
-      return;
-    }
-
-    dest = dest.createDirectory(src.getName());
-    DocumentFile[] files = src.listFiles();
-
-    for(DocumentFile file:files){
-      this.copy(file, dest);
-    }
-
-    this.cb.success("SUCCESS");
-
-  }
-
-  private boolean copyFile(DocumentFile src, DocumentFile dest){
-    InputStream is = null;
-    OutputStream os = null;
-    try{
-      this.context.grantUriPermission(BuildConfig.APPLICATION_ID, dest.getUri(),
-              Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-      // file がすでに存在してたら上書きする
-      DocumentFile newFile = dest.findFile(src.getName());
-      if (newFile == null) {
-        newFile =  dest.createFile(src.getType(), src.getName());
-      }
-      is = this.context.getContentResolver().openInputStream(src.getUri());
-      os = this.context.getContentResolver().openOutputStream(newFile.getUri());
-
-      if(is == null || os == null) return false;
-
-      int DEFAULT_BUFFER_SIZE = 1024 * 4;
-      byte[] buffer = new byte[DEFAULT_BUFFER_SIZE];
-      int size = -1;
-      int doing = 0;
-      while (-1 != (size = is.read(buffer))) {
-        os.write(buffer, 0, size);
-      }
-
-      if(src.length() == newFile.length()) return true;
-
-    }catch(FileNotFoundException e){
-      this.error(e.toString());
-    }catch(IOException e){
-      this.error(e.toString());
-    }finally{
-
       try {
-        if (is != null) {
-          is.close();
-        }
-        if (os != null) {
-          os.close();
+        Uri uri = data.getData();
+        if (uri == null) {
+          this.error("Empty uri");
+        } else {
+
+          this.takePermission(uri);
+          DocumentFile file = DocumentFile.fromTreeUri(this.context, uri);
+          if (file != null && file.canWrite()) {
+            this.callback.success(uri.toString());
+          } else {
+            this.error("No write permisson: " + uri.toString());
+          }
+
         }
       } catch (Exception e) {
+
         this.error(e.toString());
+
       }
 
     }
 
-    return false;
+  }
+
+  private void writeFile(final String filename, final String content) {
+    final CallbackContext callback = this.callback;
+    final Context context = this.context;
+
+    cordova.getThreadPool().execute(new Runnable() {
+
+      @Override
+      public void run() {
+        try {
+          DocumentFile file = getFile(filename);
+
+          if (file.canWrite()) {
+
+            OutputStream op = context.getContentResolver().openOutputStream(file.getUri(), "rwt");
+            PrintWriter pw = new PrintWriter(op, true);
+
+            pw.print(content);
+            pw.flush();
+            pw.close();
+            op.close();
+
+            callback.success("OK");
+
+          } else {
+            callback.error("No write permission - " + filename);
+          }
+        } catch (IOException e) {
+          callback.error(e.toString() + ": " + filename);
+        }
+      }
+    });
+  }
+
+  private void createDir(String parent, String name) {
+    create(parent, name, Document.MIME_TYPE_DIR);
+  }
+
+  private void createFile(String parent, String name) {
+    String mimeType = URLConnection.guessContentTypeFromName(name);
+    String ext = FilenameUtils.getExtension(name);
+    if (mimeType == null && ext != null)
+      mimeType = "text/" + ext;
+    else
+      mimeType = "text/plain";
+
+    create(parent, name, mimeType);
+  }
+
+  private void create(String parent, String name, String mimeType) {
+
+    try {
+
+      String srcUri = null, docId = null;
+      Uri parentUri = null;
+
+      if (parent.contains(SAPERATOR)) {
+        String splittedStr[] = parent.split(SAPERATOR, 2);
+        srcUri = splittedStr[0];
+        docId = splittedStr[1];
+        parentUri = getUri(srcUri, docId);
+      } else {
+        srcUri = parent;
+        parentUri = Uri.parse(srcUri);
+        docId = DocumentsContract.getTreeDocumentId(parentUri);
+        parentUri = DocumentsContract.buildDocumentUriUsingTree(parentUri, docId);
+      }
+
+      ContentResolver contentResolver = this.context.getContentResolver();
+      Uri newDocumentUri = DocumentsContract.createDocument(contentResolver, parentUri, mimeType, name);
+      DocumentFile file = getFile(newDocumentUri);
+      if (!name.equals(file.getName()))
+        newDocumentUri = DocumentsContract.renameDocument(contentResolver, newDocumentUri, name);
+
+      docId = DocumentsContract.getDocumentId(newDocumentUri);
+      if (newDocumentUri != null)
+        this.callback.success(srcUri + SAPERATOR + docId);
+      else
+        this.error("Unable to create " + parent);
+
+    } catch (Exception e) {
+      Log.d("SDcard create " + mimeType, "Unable to create", e);
+      this.error(e.toString());
+    }
 
   }
 
-  private void getPath(String src){
-    DocumentFile file = this.getDocumentFile(src);
+  private void rename(String filename, String newFile) {
+    try {
 
-    if(file == null){
+      String srcUri = null, docId = null;
+      Uri fileUri = null;
+      if (filename.contains(SAPERATOR)) {
+        String splittedStr[] = filename.split(SAPERATOR, 2);
+        srcUri = splittedStr[0];
+        docId = splittedStr[1];
+        fileUri = getUri(srcUri, docId);
+      } else {
+        srcUri = filename;
+        fileUri = Uri.parse(filename);
+      }
+
+      ContentResolver contentResolver = this.context.getContentResolver();
+      Uri renamedDocument = DocumentsContract.renameDocument(contentResolver, fileUri, newFile);
+      docId = DocumentsContract.getDocumentId(renamedDocument);
+
+      if (renamedDocument != null)
+        this.callback.success(srcUri + SAPERATOR + docId);
+      else
+        this.error("Unable to rename " + filename);
+
+    } catch (Exception e) {
+      Log.d("SDcard rename", "Unable to rename", e);
+      this.error(e.toString());
+    }
+  }
+
+  private void delete(String filename) {
+    ContentResolver contentResolver = context.getContentResolver();
+    Uri fileUri = Uri.parse(filename);
+
+    try {
+      boolean fileDeleted = DocumentsContract.deleteDocument(contentResolver, fileUri);
+
+      if (fileDeleted)
+        this.callback.success(filename);
+      else
+        this.error("Unable to delete file " + filename);
+    } catch (FileNotFoundException e) {
+      this.error(e.toString());
+    }
+  }
+
+  private void move(String src, String dest) {
+
+    final ContentResolver contentResolver = this.context.getContentResolver();
+    final String splittedStr[] = src.split(SAPERATOR, 2);
+    final String rootUri = splittedStr[0];
+    final String srcId = splittedStr[1];
+    final String destId = dest.split(SAPERATOR, 2)[1];
+    final CallbackContext callback = this.callback;
+
+    cordova.getThreadPool().execute(new Runnable() {
+
+      @Override
+      public void run() {
+
+        try {
+          Uri newUri = copy(rootUri, srcId, destId);
+          if (newUri == null)
+            callback.error("Unable to copy " + src);
+          else {
+            DocumentsContract.deleteDocument(contentResolver, getUri(rootUri, srcId));
+            callback.success(rootUri + SAPERATOR + DocumentsContract.getDocumentId(newUri));
+          }
+        } catch (Exception e) {
+          callback.error(e.toString());
+        }
+
+      }
+    });
+
+  }
+
+  private void copy(String src, String dest) {
+
+    final String splittedStr[] = src.split(SAPERATOR, 2);
+    final String srcUri = splittedStr[0];
+    final String srcId = splittedStr[1];
+    final String destId = dest.split(SAPERATOR, 2)[1];
+    final CallbackContext callback = this.callback;
+
+    cordova.getThreadPool().execute(new Runnable() {
+
+      @Override
+      public void run() {
+
+        try {
+          Uri newUri = copy(srcUri, srcId, destId);
+          if (newUri == null)
+            callback.error("Unable to copy " + src);
+          else
+            callback.success(srcUri + SAPERATOR + DocumentsContract.getDocumentId(newUri));
+        } catch (Exception e) {
+          callback.error(e.toString());
+        }
+
+      }
+    });
+
+  }
+
+  private Uri copy(String root, String srcId, String destId) throws IOException, FileNotFoundException {
+
+    Uri srcUri = getUri(root, srcId);
+    Uri destUri = getUri(root, destId);
+    DocumentFile src = getFile(srcUri);
+    DocumentFile dest = getFile(destUri);
+    ContentResolver contentResolver = context.getContentResolver();
+
+    if (src.isFile()) {
+      Uri newUri = copyFile(src, dest);
+      if (newUri == null)
+        return null;
+      else
+        return newUri;
+
+    } else {
+
+      destUri = DocumentsContract.createDocument(contentResolver, destUri, Document.MIME_TYPE_DIR, src.getName());
+      destId = DocumentsContract.getDocumentId(destUri);
+
+      Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(Uri.parse(root), srcId);
+      Cursor c = contentResolver.query(childrenUri, new String[] { Document.COLUMN_DOCUMENT_ID }, null, null, null);
+      if (c != null) {
+        while (c.moveToNext()) {
+          String docId = c.getString(0);
+          copy(root, docId, destId);
+        }
+        c.close();
+        return destUri;
+      } else {
+        DocumentsContract.deleteDocument(contentResolver, destUri);
+        return null;
+      }
+
+    }
+
+  }
+
+  private Uri copyFile(DocumentFile src, DocumentFile dest) throws IOException, FileNotFoundException {
+
+    ContentResolver contentResolver = this.context.getContentResolver();
+
+    Uri newFileUri = DocumentsContract.createDocument(contentResolver, dest.getUri(), src.getType(), src.getName());
+    DocumentFile newFile = getFile(newFileUri);
+    InputStream is = contentResolver.openInputStream(src.getUri());
+    OutputStream os = contentResolver.openOutputStream(newFile.getUri(), "rwt");
+
+    if (is == null || os == null) {
+      DocumentsContract.deleteDocument(contentResolver, newFileUri);
+      return null;
+    }
+
+    IOUtils.copy(is, os);
+
+    is.close();
+    os.close();
+
+    if (src.length() == newFile.length())
+      return newFile.getUri();
+    else {
+      DocumentsContract.deleteDocument(contentResolver, newFileUri);
+      return null;
+    }
+
+  }
+
+  private void listDir(String src, String parentDocId) {
+    Uri srcUri = Uri.parse(src);
+    ContentResolver contentResolver = this.context.getContentResolver();
+
+    if (parentDocId == null) {
+      parentDocId = DocumentsContract.getTreeDocumentId(srcUri);
+    }
+
+    Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(srcUri, parentDocId);
+
+    JSONArray result = new JSONArray();
+    Cursor c = contentResolver.query(childrenUri,
+        new String[] { Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_MIME_TYPE }, null,
+        null, null);
+
+    try {
+      while (c.moveToNext()) {
+        JSONObject fileData = new JSONObject();
+        String docId = c.getString(0);
+        String name = c.getString(1);
+        String mime = c.getString(2);
+        boolean isDirectory = isDirectory(mime);
+
+        fileData.put("name", name);
+        fileData.put("mime", mime);
+        fileData.put("isDirectory", isDirectory);
+        fileData.put("isFile", !isDirectory);
+        fileData.put("uri", src + this.SAPERATOR + docId);
+        result.put(fileData);
+      }
+
+      this.callback.success(result);
+    } catch (JSONException e) {
+
+      this.error(e.toString());
+
+    } finally {
+      if (c != null) {
+        try {
+          c.close();
+        } catch (RuntimeException re) {
+          throw re;
+        } catch (Exception ignore) {
+          // ignore exception
+        }
+      }
+    }
+  }
+
+  private boolean isDirectory(String mimeType) {
+    return DocumentsContract.Document.MIME_TYPE_DIR.equals(mimeType);
+  }
+
+  private void getStats(String filename) {
+    String fileUri = formatUri(filename);
+
+    try {
+      DocumentFile file = getFile(fileUri);
+
+      JSONObject result = new JSONObject();
+      result.put("exists", file.exists());
+      result.put("canRead", file.canRead());
+      result.put("canWrite", file.canWrite());
+      result.put("name", file.getName());
+      result.put("length", file.length());
+      result.put("type", file.getType());
+      result.put("isFile", file.isFile());
+      result.put("isDirectory", file.isDirectory());
+      result.put("isVirtual", file.isVirtual());
+      result.put("lastModified", file.lastModified());
+
+      this.callback.success(result);
+    } catch (Exception e) {
+      this.error(e.getMessage());
+    }
+  }
+
+  private Uri getUri(String src, String docId) {
+    Uri srcUri = Uri.parse(src);
+    String srcId = DocumentsContract.getTreeDocumentId(srcUri);
+    srcUri = DocumentsContract.buildDocumentUriUsingTree(srcUri, srcId);
+    return DocumentsContract.buildDocumentUriUsingTree(srcUri, docId);
+  }
+
+  private void exists(String path) {
+    DocumentFile file = DocumentFile.fromSingleUri(this.context, Uri.parse(path));
+
+    if (file == null) {
+      this.error("Unable to get file");
+    } else {
+
+      if (file.exists()) {
+        this.callback.success("TRUE");
+      } else {
+        this.callback.success("FALSE");
+      }
+
+    }
+
+  }
+
+  private void error(String err) {
+    this.callback.error("ERROR: " + err);
+  }
+
+  private void getPath(String uriString, String src) {
+    DocumentFile file = geRelativetDocumentFile(uriString, src);
+
+    if (file == null) {
 
       this.error("Unable to get file");
 
-    }else{
+    } else {
 
       Uri uri = file.getUri();
       String path = uri.getPath();
 
-      if(path != null){
-        this.cb.success(uri.toString());
-      }else{
+      if (path != null) {
+        this.callback.success(uri.toString());
+      } else {
         this.error("Unable to get path");
       }
 
     }
   }
 
-  private void error(String err){
-    this.cb.error("ERROR: "+err);
-  }
-
-  private DocumentFile getDocumentFile(String filename){
-    return _DocumentFile(filename, 0);
-  }
-
-  private DocumentFile getParentDocumentFile(String filename){
-    return _DocumentFile(filename, 1);
-  }
-
-  private DocumentFile _DocumentFile(String filename, int limit){
+  private DocumentFile geRelativetDocumentFile(String uri, String filename) {
 
     List<String> paths = new ArrayList<String>();
     DocumentFile file = null;
 
-    file = DocumentFile.fromTreeUri(this.context, Uri.parse(this.rootPath));
-    if(!file.canWrite()){
+    file = DocumentFile.fromTreeUri(this.context, Uri.parse(uri));
+    if (!file.canWrite()) {
       this.error("No write permission");
       return null;
     }
 
     paths.addAll(Arrays.asList(filename.split("/")));
 
-    while(paths.size() > limit){
+    while (paths.size() > 0) {
       String path = paths.remove(0);
       filename = TextUtils.join("/", paths);
 
-      if(!path.equals("")){
+      if (!path.equals("")) {
 
         file = file.findFile(path);
 
-        if(file == null) return null;
+        if (file == null)
+          return null;
       }
     }
 
@@ -637,38 +718,28 @@ public class SDcard extends CordovaPlugin {
 
   }
 
-  private void takePermission(Uri uri){
-    this.contentResolver = this.context.getContentResolver();
-    this.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+  private DocumentFile getFile(Uri uri) {
+    return getFile(uri.toString());
   }
 
-  public static android.net.Uri getExternalFilesDirUri(Context context) {
-    try {
-      /**
-       * Determine the app's private data folder on external storage if present.
-       * e.g. "/storage/abcd-efgh/Android/com.nutomic.syncthinandroid/files"
-       */
-      ArrayList<File> externalFilesDir = new ArrayList<>();
-      externalFilesDir.addAll(Arrays.asList(context.getExternalFilesDirs(null)));
-      externalFilesDir.remove(context.getExternalFilesDir(null));
-      if (externalFilesDir.size() == 0) {
-        return null;
-      }
-      String absPath = externalFilesDir.get(0).getAbsolutePath();
-      String[] segments = absPath.split("/");
-      if (segments.length < 2) {
-        return null;
-      }
-      // Extract the volumeId, e.g. "abcd-efgh"
-      String volumeId = segments[2];
-      // Build the content Uri for our private "files" folder.
-      return android.net.Uri.parse(
-              "content://com.android.externalstorage.documents/document/" +
-                      volumeId + "%3AAndroid%2Fdata%2F" +
-                      context.getPackageName() + "%2Ffiles");
-    } catch (Exception e) {
-    //  Log.w(TAG, "getExternalFilesDirUri exception", e);
-    }
-    return null;
+  private DocumentFile getFile(String filePath) {
+        Uri fileUri = Uri.parse(filePath);
+        DocumentFile documentFile = null;
+        
+        if (filePath.matches("file:///(.*)")) {
+            File file = new File(fileUri.getPath());
+            documentFile = DocumentFile.fromFile(file);
+        } else {
+            documentFile = DocumentFile.fromSingleUri(this.context, Uri.parse(filePath));
+        }
+
+        return documentFile;
   }
+
+  private void takePermission(Uri uri) {
+    this.contentResolver = this.context.getContentResolver();
+    this.contentResolver.takePersistableUriPermission(uri,
+        Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+  }
+
 }
